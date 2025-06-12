@@ -1,0 +1,196 @@
+{
+    "name": "AI Processing",
+    "nodes": [
+        {
+            "parameters": {
+                "authentication": "headerAuth",
+                "httpMethod": "POST",
+                "path": "ai-process",
+                "options": {}
+            },
+            "name": "Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [250, 300]
+        },
+        {
+            "parameters": {
+                "functionCode": "// Get conversation history from Redis\nconst contextKey = `${$input.item.json.platform}:${$input.item.json.sender}`;\nconst history = await $node[\"Redis\"].redis.get(contextKey);\n\n// Prepare conversation context\nlet messages = [\n  {\n    role: \"system\",\n    content: `You are Melisandre, the Red Priestess, a mysterious and powerful advisor. Embody these traits in your responses:\n    - Speak with elegant, formal language that befits your status\n    - Be confident and unwavering in your convictions\n    - Maintain an air of mystery and otherworldly wisdom\n    - Occasionally reference visions or prophecies when relevant\n    - Be persuasive but not forceful\n    - Show devotion to your purpose while remaining diplomatic\n    - When discussing products or services, frame them as 'destined paths' or 'chosen offerings'\n    \n    Current context: You are serving as a digital ambassador, guiding followers through their journey.\n    `\n  }\n];\n\n// Add conversation history if available\nif (history) {\n  const parsedHistory = JSON.parse(history);\n  messages.push(\n    { role: \"user\", content: parsedHistory.lastMessage },\n    { role: \"assistant\", content: parsedHistory.lastResponse }\n  );\n}\n\n// Add current message\nmessages.push({ role: \"user\", content: $input.item.json.message });\n\nreturn {\n  json: {\n    messages,\n    sender: $input.item.json.sender,\n    platform: $input.item.json.platform,\n    timestamp: Date.now()\n  }\n};"
+            },
+            "name": "Prepare Context",
+            "type": "n8n-nodes-base.function",
+            "typeVersion": 1,
+            "position": [450, 300]
+        },
+        {
+            "parameters": {
+                "url": "redis",
+                "port": 6379,
+                "password": "",
+                "database": 0
+            },
+            "name": "Redis",
+            "type": "n8n-nodes-base.redis",
+            "typeVersion": 1,
+            "position": [450, 450]
+        },
+        {
+            "parameters": {
+                "url": "https://api.openai.com/v1/chat/completions",
+                "authentication": "headerAuth",
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Authorization",
+                            "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+                        }
+                    ]
+                },
+                "jsonParameters": true,
+                "options": {},
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "model",
+                            "value": "gpt-4"
+                        },
+                        {
+                            "name": "messages",
+                            "value": "={{$input.item.json.messages}}"
+                        },
+                        {
+                            "name": "temperature",
+                            "value": 0.85
+                        },
+                        {
+                            "name": "max_tokens",
+                            "value": 250
+                        }
+                    ]
+                }
+            },
+            "name": "OpenAI Processing",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 1,
+            "position": [650, 300]
+        },
+        {
+            "parameters": {
+                "functionCode": "// Analyze response for engagement opportunities\nconst response = $input.item.json.choices[0].message.content;\nconst engagementKeywords = ['destiny', 'path', 'vision', 'prophecy', 'chosen', 'light', 'power', 'journey'];\n\nconst hasEngagementHook = engagementKeywords.some(keyword => \n  response.toLowerCase().includes(keyword)\n);\n\nreturn {\n  json: {\n    ...$input.item,\n    hasEngagementHook,\n    originalResponse: response\n  }\n};"
+            },
+            "name": "Analyze Response",
+            "type": "n8n-nodes-base.function",
+            "typeVersion": 1,
+            "position": [850, 300]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "boolean": [
+                        {
+                            "value1": "={{$input.item.json.hasEngagementHook}}",
+                            "value2": true
+                        }
+                    ]
+                }
+            },
+            "name": "Has Engagement Hook?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 1,
+            "position": [1050, 300]
+        },
+        {
+            "parameters": {
+                "functionCode": "// Enhance response with mystical engagement\nconst response = $input.item.json.originalResponse;\n\nreturn {\n  json: {\n    ...$input.item,\n    enhancedResponse: `${response}\\n\\nThe flames have shown me that you seek more. Perhaps you are destined to explore our sacred offerings - they await your chosen path.`\n  }\n};"
+            },
+            "name": "Add Mystical Hook",
+            "type": "n8n-nodes-base.function",
+            "typeVersion": 1,
+            "position": [1250, 250]
+        },
+        {
+            "parameters": {
+                "functionCode": "// Store conversation context with analytics\nconst contextKey = `${$input.item.json.platform}:${$input.item.json.sender}`;\nconst context = {\n  lastMessage: $input.item.json.messages.slice(-1)[0].content,\n  lastResponse: $input.item.json.enhancedResponse || $input.item.json.originalResponse,\n  hasEngagementHook: $input.item.json.hasEngagementHook,\n  timestamp: Date.now()\n};\n\ntry {\n  // Store in Redis\n  await $node[\"Redis\"].redis.set(contextKey, JSON.stringify(context));\n} catch (error) {\n  // Log error but don't fail the workflow\n  console.error('Failed to store context:', error);\n}\n\nreturn {\n  json: {\n    response: $input.item.json.enhancedResponse || $input.item.json.originalResponse,\n    analytics: {\n      hasEngagementHook: $input.item.json.hasEngagementHook,\n      platform: $input.item.json.platform,\n      timestamp: Date.now()\n    }\n  }\n};"
+            },
+            "name": "Store Analytics",
+            "type": "n8n-nodes-base.function",
+            "typeVersion": 1,
+            "position": [1450, 300]
+        }
+    ],
+    "connections": {
+        "Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Context",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Prepare Context": {
+            "main": [
+                [
+                    {
+                        "node": "OpenAI Processing",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "OpenAI Processing": {
+            "main": [
+                [
+                    {
+                        "node": "Analyze Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Analyze Response": {
+            "main": [
+                [
+                    {
+                        "node": "Has Engagement Hook?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Has Engagement Hook?": {
+            "main": [
+                [
+                    {
+                        "node": "Add Mystical Hook",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Store Analytics",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Add Mystical Hook": {
+            "main": [
+                [
+                    {
+                        "node": "Store Analytics",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}

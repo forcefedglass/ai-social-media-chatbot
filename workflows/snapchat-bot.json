@@ -1,0 +1,200 @@
+{
+    "name": "Snapchat Bot",
+    "nodes": [
+        {
+            "parameters": {
+                "authentication": "headerAuth",
+                "httpMethod": "POST",
+                "path": "snapchat-webhook",
+                "options": {}
+            },
+            "name": "Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [250, 300]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Extract Snapchat data with error handling\ntry {\n  const data = $input.all()[0].json.body;\n\n  if (!data?.sender_id || !data?.message_content) {\n    throw new Error('Invalid message format');\n  }\n\n  return {\n    json: {\n      type: 'snapchat',\n      platform: 'snapchat',\n      sender: data.sender_id,\n      message: data.message_content,\n      mediaType: data.media_type,\n      mediaUrl: data.media_url,\n      timestamp: Date.now(),\n      conversationId: data.conversation_id\n    }\n  };\n} catch (error) {\n  // Return graceful error in Melisandre's style\n  return {\n    json: {\n      error: true,\n      message: 'The flames show distortion in your message. Let us seek clarity together, for the night is dark and full of terrors.',\n      sender: $input.all()[0]?.json?.body?.sender_id,\n      type: 'snapchat',\n      platform: 'snapchat',\n      timestamp: Date.now(),\n      conversationId: $input.all()[0]?.json?.body?.conversation_id\n    }\n  };\n}"
+            },
+            "name": "Process Snapchat Data",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 1,
+            "position": [450, 300]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "boolean": [
+                        {
+                            "value1": "={{$input.item.json.error}}",
+                            "value2": true
+                        }
+                    ]
+                }
+            },
+            "name": "Check Error",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 1,
+            "position": [650, 300]
+        },
+        {
+            "parameters": {
+                "url": "http://localhost:5678/webhook/ai-process",
+                "authentication": "none",
+                "method": "POST",
+                "jsonParameters": true,
+                "options": {},
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "value": "={{$input.item.json.message}}"
+                        },
+                        {
+                            "name": "sender",
+                            "value": "={{$input.item.json.sender}}"
+                        },
+                        {
+                            "name": "platform",
+                            "value": "snapchat"
+                        }
+                    ]
+                }
+            },
+            "name": "Call AI Processing",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 1,
+            "position": [850, 300]
+        },
+        {
+            "parameters": {
+                "authentication": "headerAuth",
+                "url": "=https://adsapi.snapchat.com/v1/conversations/{{$input.item.json.conversationId}}/messages",
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Authorization",
+                            "value": "=Bearer {{$env.SNAPCHAT_ACCESS_TOKEN}}"
+                        }
+                    ]
+                },
+                "jsonParameters": true,
+                "options": {},
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "value": "={{$input.item.json.error ? $input.item.json.message : $node[\"Call AI Processing\"].json.response}}"
+                        },
+                        {
+                            "name": "recipient_id",
+                            "value": "={{$input.item.json.sender}}"
+                        },
+                        {
+                            "name": "message_type",
+                            "value": "text"
+                        }
+                    ]
+                }
+            },
+            "name": "Send Snapchat Response",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 1,
+            "position": [1050, 300]
+        },
+        {
+            "parameters": {
+                "functionCode": "// Log error for monitoring\nconsole.error('Snapchat Bot Error:', $input.item.json);\n\n// Return original item to continue workflow\nreturn $input.item;"
+            },
+            "name": "Log Error",
+            "type": "n8n-nodes-base.function",
+            "typeVersion": 1,
+            "position": [850, 450]
+        },
+        {
+            "parameters": {
+                "functionCode": "// Handle media content if present\nif ($input.item.json.mediaType && $input.item.json.mediaUrl) {\n  try {\n    // Process media content here\n    // For now, just acknowledge it in Melisandre's style\n    const mediaResponse = 'I see visions in the content you've shared. The Lord of Light speaks through many mediums.';\n    \n    return {\n      json: {\n        ...$input.item.json,\n        message: $input.item.json.message + '\\n\\n' + mediaResponse\n      }\n    };\n  } catch (error) {\n    console.error('Media processing error:', error);\n  }\n}\n\nreturn $input.item;"
+            },
+            "name": "Process Media",
+            "type": "n8n-nodes-base.function",
+            "typeVersion": 1,
+            "position": [450, 450]
+        }
+    ],
+    "connections": {
+        "Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Process Snapchat Data",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Process Snapchat Data": {
+            "main": [
+                [
+                    {
+                        "node": "Process Media",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Process Media": {
+            "main": [
+                [
+                    {
+                        "node": "Check Error",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Check Error": {
+            "main": [
+                [
+                    {
+                        "node": "Log Error",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Call AI Processing",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Call AI Processing": {
+            "main": [
+                [
+                    {
+                        "node": "Send Snapchat Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Log Error": {
+            "main": [
+                [
+                    {
+                        "node": "Send Snapchat Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}

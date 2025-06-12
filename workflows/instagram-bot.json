@@ -1,0 +1,238 @@
+{
+    "name": "Instagram Bot",
+    "nodes": [
+        {
+            "parameters": {
+                "authentication": "headerAuth",
+                "httpMethod": "POST",
+                "path": "instagram-webhook",
+                "options": {}
+            },
+            "name": "Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [250, 300]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Extract Instagram data with error handling\ntry {\n  const data = $input.all()[0].json.body;\n  \n  if (!data?.entry?.[0]?.changes?.[0]) {\n    throw new Error('Invalid message format');\n  }\n\n  // Structure the data based on type (DM or comment)\n  let messageType = data.entry[0].changes[0].field;\n  let messageData = data.entry[0].changes[0].value;\n\n  if (!messageData?.from?.id || (!messageData.message && !messageData.text)) {\n    throw new Error('Missing required message data');\n  }\n\n  return {\n    json: {\n      type: 'instagram',\n      platform: 'instagram',\n      subtype: messageType,\n      sender: messageData.from.id,\n      message: messageData.message || messageData.text,\n      timestamp: messageData.timestamp || Date.now(),\n      mediaId: messageData.media_id,\n      postId: messageData.post_id\n    }\n  };\n} catch (error) {\n  // Return graceful error in Melisandre's style\n  return {\n    json: {\n      error: true,\n      message: 'The Lord of Light shows me shadows in your message. Perhaps you could illuminate your intent more clearly?',\n      sender: $input.all()[0]?.json?.body?.entry?.[0]?.changes?.[0]?.value?.from?.id,\n      type: 'instagram',\n      platform: 'instagram',\n      timestamp: Date.now()\n    }\n  };\n}"
+            },
+            "name": "Process Instagram Data",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 1,
+            "position": [450, 300]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "boolean": [
+                        {
+                            "value1": "={{$input.item.json.error}}",
+                            "value2": true
+                        }
+                    ]
+                }
+            },
+            "name": "Check Error",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 1,
+            "position": [650, 300]
+        },
+        {
+            "parameters": {
+                "url": "http://localhost:5678/webhook/ai-process",
+                "authentication": "none",
+                "method": "POST",
+                "jsonParameters": true,
+                "options": {},
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "value": "={{$input.item.json.message}}"
+                        },
+                        {
+                            "name": "sender",
+                            "value": "={{$input.item.json.sender}}"
+                        },
+                        {
+                            "name": "platform",
+                            "value": "instagram"
+                        }
+                    ]
+                }
+            },
+            "name": "Call AI Processing",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 1,
+            "position": [850, 300]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "string": [
+                        {
+                            "value1": "={{$input.item.json.subtype}}",
+                            "value2": "comments"
+                        }
+                    ]
+                }
+            },
+            "name": "Is Comment?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 1,
+            "position": [1050, 300]
+        },
+        {
+            "parameters": {
+                "url": "=https://graph.facebook.com/v17.0/{{$input.item.json.postId}}/comments",
+                "authentication": "headerAuth",
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Authorization",
+                            "value": "=Bearer {{$env.INSTAGRAM_ACCESS_TOKEN}}"
+                        }
+                    ]
+                },
+                "jsonParameters": true,
+                "options": {},
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "value": "={{$input.item.json.error ? $input.item.json.message : $node[\"Call AI Processing\"].json.response}}"
+                        }
+                    ]
+                }
+            },
+            "name": "Reply to Comment",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 1,
+            "position": [1250, 300]
+        },
+        {
+            "parameters": {
+                "url": "=https://graph.facebook.com/v17.0/{{$input.item.json.sender}}/messages",
+                "authentication": "headerAuth",
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Authorization",
+                            "value": "=Bearer {{$env.INSTAGRAM_ACCESS_TOKEN}}"
+                        }
+                    ]
+                },
+                "jsonParameters": true,
+                "options": {},
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "value": "={{$input.item.json.error ? $input.item.json.message : $node[\"Call AI Processing\"].json.response}}"
+                        },
+                        {
+                            "name": "recipient_id",
+                            "value": "={{$input.item.json.sender}}"
+                        }
+                    ]
+                }
+            },
+            "name": "Send DM Response",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 1,
+            "position": [1250, 450]
+        },
+        {
+            "parameters": {
+                "functionCode": "// Log error for monitoring\nconsole.error('Instagram Bot Error:', $input.item.json);\n\n// Return original item to continue workflow\nreturn $input.item;"
+            },
+            "name": "Log Error",
+            "type": "n8n-nodes-base.function",
+            "typeVersion": 1,
+            "position": [850, 450]
+        }
+    ],
+    "connections": {
+        "Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Process Instagram Data",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Process Instagram Data": {
+            "main": [
+                [
+                    {
+                        "node": "Check Error",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Check Error": {
+            "main": [
+                [
+                    {
+                        "node": "Log Error",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Call AI Processing",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Call AI Processing": {
+            "main": [
+                [
+                    {
+                        "node": "Is Comment?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Is Comment?": {
+            "main": [
+                [
+                    {
+                        "node": "Reply to Comment",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Send DM Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Log Error": {
+            "main": [
+                [
+                    {
+                        "node": "Is Comment?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}

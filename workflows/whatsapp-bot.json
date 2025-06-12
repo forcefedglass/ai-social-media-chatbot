@@ -1,0 +1,184 @@
+{
+    "name": "WhatsApp Bot",
+    "nodes": [
+        {
+            "parameters": {
+                "authentication": "headerAuth",
+                "httpMethod": "POST",
+                "path": "whatsapp-webhook",
+                "options": {}
+            },
+            "name": "Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [250, 300]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Extract message data with error handling\ntry {\n  const data = $input.all()[0].json.body;\n\n  if (!data || !data.from || !data.text || !data.text.body) {\n    throw new Error('Invalid message format');\n  }\n\n  // Return structured message data\n  return {\n    json: {\n      sender: data.from,\n      message: data.text.body,\n      timestamp: data.timestamp || Date.now(),\n      type: 'whatsapp',\n      platform: 'whatsapp'\n    }\n  };\n} catch (error) {\n  // Return graceful error response in Melisandre's style\n  return {\n    json: {\n      error: true,\n      sender: $input.all()[0]?.json?.body?.from,\n      message: 'The visions are unclear. Perhaps you could rephrase your message, for the night is dark and full of errors.',\n      timestamp: Date.now(),\n      type: 'whatsapp',\n      platform: 'whatsapp'\n    }\n  };\n}"
+            },
+            "name": "Process Message",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 1,
+            "position": [450, 300]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "boolean": [
+                        {
+                            "value1": "={{$input.item.json.error}}",
+                            "value2": true
+                        }
+                    ]
+                }
+            },
+            "name": "Check Error",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 1,
+            "position": [650, 300]
+        },
+        {
+            "parameters": {
+                "url": "http://localhost:5678/webhook/ai-process",
+                "authentication": "none",
+                "method": "POST",
+                "jsonParameters": true,
+                "options": {},
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "value": "={{$input.item.json.message}}"
+                        },
+                        {
+                            "name": "sender",
+                            "value": "={{$input.item.json.sender}}"
+                        },
+                        {
+                            "name": "platform",
+                            "value": "whatsapp"
+                        }
+                    ]
+                }
+            },
+            "name": "Call AI Processing",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 1,
+            "position": [850, 300]
+        },
+        {
+            "parameters": {
+                "url": "=https://graph.facebook.com/v17.0/{{$env.WHATSAPP_PHONE_NUMBER}}/messages",
+                "authentication": "headerAuth",
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Authorization",
+                            "value": "=Bearer {{$env.WHATSAPP_API_TOKEN}}"
+                        }
+                    ]
+                },
+                "jsonParameters": true,
+                "options": {},
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "messaging_product",
+                            "value": "whatsapp"
+                        },
+                        {
+                            "name": "to",
+                            "value": "={{$input.item.json.sender}}"
+                        },
+                        {
+                            "name": "type",
+                            "value": "text"
+                        },
+                        {
+                            "name": "text",
+                            "value": "={{$input.item.json.error ? $input.item.json.message : $node[\"Call AI Processing\"].json.response}}"
+                        }
+                    ]
+                }
+            },
+            "name": "Send Response",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 1,
+            "position": [1050, 300]
+        },
+        {
+            "parameters": {
+                "functionCode": "// Log error for monitoring\nconsole.error('WhatsApp Bot Error:', $input.item.json);\n\n// Return original item to continue workflow\nreturn $input.item;"
+            },
+            "name": "Log Error",
+            "type": "n8n-nodes-base.function",
+            "typeVersion": 1,
+            "position": [850, 450]
+        }
+    ],
+    "connections": {
+        "Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Process Message",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Process Message": {
+            "main": [
+                [
+                    {
+                        "node": "Check Error",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Check Error": {
+            "main": [
+                [
+                    {
+                        "node": "Log Error",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Call AI Processing",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Call AI Processing": {
+            "main": [
+                [
+                    {
+                        "node": "Send Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Log Error": {
+            "main": [
+                [
+                    {
+                        "node": "Send Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}
